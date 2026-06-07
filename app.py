@@ -1,14 +1,52 @@
-from flask import Flask, render_template, request, send_file, Response, jsonify
+from flask import (
+    Flask, render_template, request, send_file, Response, jsonify,
+    session, redirect, url_for,
+)
 import os
+import re
 import shutil
 import uuid
 import queue
 import threading
 import time
 import gc
+from datetime import timedelta
+from functools import wraps
 from downloader import WebsiteDownloader, zip_directory, get_site_name
 
 app = Flask(__name__)
+
+# --- Authentication gate -------------------------------------------------
+# Acesso protegido por e-mail. Configure no Hugging Face (Settings -> Variables
+# and secrets) ou via variaveis de ambiente:
+#   SECRET_KEY      -> chave para assinar a sessao (qualquer string longa)
+#   ALLOWED_EMAILS  -> lista de e-mails autorizados, separados por virgula
+#                      (se vazio, qualquer e-mail valido entra = trava leve)
+#   ACCESS_PASSWORD -> senha de acesso compartilhada opcional (alem do e-mail)
+app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(32)
+app.permanent_session_lifetime = timedelta(days=7)
+
+ACCESS_PASSWORD = os.environ.get('ACCESS_PASSWORD', '').strip()
+EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+# Endpoints da API que devem responder 401 (em vez de redirecionar) sem login.
+_API_PREFIXES = ('/start-download', '/stream', '/download-file')
+
+
+def _allowed_emails():
+    raw = os.environ.get('ALLOWED_EMAILS', '')
+    return {e.strip().lower() for e in raw.split(',') if e.strip()}
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not session.get('user_email'):
+            if request.path.startswith(_API_PREFIXES):
+                return jsonify({'error': 'auth_required'}), 401
+            return redirect(url_for('login'))
+        return view(*args, **kwargs)
+    return wrapped
 
 DOWNLOAD_FOLDER = 'downloads'
 if not os.path.exists(DOWNLOAD_FOLDER):
@@ -147,9 +185,45 @@ def cleanup_abandoned_sessions():
 threading.Thread(target=cleanup_abandoned_sessions, daemon=True).start()
 
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if session.get('user_email'):
+        return redirect(url_for('index'))
+
+    error = None
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+        password = (request.form.get('password') or '').strip()
+        allowed = _allowed_emails()
+
+        if not EMAIL_RE.match(email):
+            error = 'Digite um e-mail válido.'
+        elif allowed and email not in allowed:
+            error = 'Este e-mail não está autorizado a acessar a ferramenta.'
+        elif ACCESS_PASSWORD and password != ACCESS_PASSWORD:
+            error = 'Senha de acesso incorreta.'
+        else:
+            session['user_email'] = email
+            session.permanent = True
+            return redirect(url_for('index'))
+
+    return render_template(
+        'login.html',
+        error=error,
+        require_password=bool(ACCESS_PASSWORD),
+    )
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+
 @app.route('/')
+@login_required
 def index():
-    return render_template('index.html')
+    return render_template('index.html', user_email=session.get('user_email'))
 
 
 @app.route('/health')
@@ -179,6 +253,7 @@ def health():
 
 
 @app.route('/start-download', methods=['POST'])
+@login_required
 def start_download():
     """Start download process and return session ID for SSE."""
     data = request.get_json(silent=True) or {}
@@ -277,6 +352,7 @@ def process_download(session_id, url):
 
 
 @app.route('/stream/<session_id>')
+@login_required
 def stream(session_id):
     """SSE endpoint for log streaming."""
     def generate():
@@ -321,6 +397,7 @@ def stream(session_id):
 
 
 @app.route('/download-file/<session_id>')
+@login_required
 def download_file(session_id):
     """Download the generated ZIP file and clean up immediately."""
     with session_lock:
