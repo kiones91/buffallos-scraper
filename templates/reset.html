@@ -22,41 +22,97 @@
         button { background: linear-gradient(135deg, #4a6cf7 0%, #6366f1 100%); color: white; border: none;
             padding: 14px 24px; font-size: 1rem; border-radius: 10px; cursor: pointer; width: 100%;
             font-weight: 600; margin-top: 0.25rem; }
+        button:disabled { background:#ccc; cursor:not-allowed; }
         .error { background: #fee2e2; color: #b91c1c; padding: 0.75rem 1rem; border-radius: 10px;
             font-size: 0.85rem; margin-bottom: 1rem; text-align: center; }
         .message { background: #dcfce7; color: #166534; padding: 0.75rem 1rem; border-radius: 10px;
             font-size: 0.9rem; margin-bottom: 1rem; text-align: center; }
         a.link { color:#4a6cf7; text-decoration:none; font-weight:600; }
+        .hidden { display:none; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="logo">🔐</div>
         <h1>Redefinir senha</h1>
+        <p class="subtitle">Defina sua nova senha de acesso.</p>
 
-        {% if done %}
-            <div class="message">Senha redefinida com sucesso!</div>
-            <div style="text-align:center"><a class="link" href="/login">Ir para o login</a></div>
-        {% elif not valid %}
-            <p class="subtitle">Este link de redefinição é inválido ou expirou.</p>
-            <div style="text-align:center"><a class="link" href="/forgot">Solicitar um novo link</a></div>
-        {% else %}
-            <p class="subtitle">Crie uma nova senha para <b>{{ email }}</b>.</p>
-            {% if error %}<div class="error">{{ error }}</div>{% endif %}
-            <form method="POST" action="/reset">
-                <input type="hidden" name="email" value="{{ email }}">
-                <input type="hidden" name="token" value="{{ token }}">
-                <div class="input-group">
-                    <label for="new">Nova senha (mín. 6 caracteres)</label>
-                    <input type="password" id="new" name="new" placeholder="••••••••" required autofocus>
-                </div>
-                <div class="input-group">
-                    <label for="confirm">Repita a nova senha</label>
-                    <input type="password" id="confirm" name="confirm" placeholder="••••••••" required>
-                </div>
-                <button type="submit">Redefinir senha</button>
-            </form>
-        {% endif %}
+        <div id="msg" class="hidden"></div>
+
+        <form id="form">
+            <div class="input-group">
+                <label for="new">Nova senha (mín. 6 caracteres)</label>
+                <input type="password" id="new" placeholder="••••••••" required autofocus>
+            </div>
+            <div class="input-group">
+                <label for="confirm">Repita a nova senha</label>
+                <input type="password" id="confirm" placeholder="••••••••" required>
+            </div>
+            <button type="submit" id="btn">Salvar nova senha</button>
+        </form>
+
+        <div style="margin-top:1rem; text-align:center; font-size:0.85rem;">
+            <a class="link" href="/login">Voltar ao login</a>
+        </div>
     </div>
+
+    <script>
+        const SUPABASE_URL = "{{ supabase_url }}";
+        const SUPABASE_ANON = "{{ supabase_anon }}";
+
+        function showError(t) {
+            const m = document.getElementById('msg');
+            m.className = 'error'; m.textContent = t; m.classList.remove('hidden');
+        }
+        function showOk(t) {
+            const m = document.getElementById('msg');
+            m.className = 'message'; m.innerHTML = t; m.classList.remove('hidden');
+        }
+
+        // O Supabase devolve o token no fragmento (#access_token=...&type=recovery|invite)
+        function getToken() {
+            const h = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+            return h.get('access_token');
+        }
+
+        const token = getToken();
+        if (!token) {
+            document.getElementById('form').classList.add('hidden');
+            showError('Link inválido ou expirado. Solicite um novo em "Esqueci a senha".');
+        }
+
+        document.getElementById('form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const np = document.getElementById('new').value;
+            const cf = document.getElementById('confirm').value;
+            if (np.length < 6) { showError('A senha precisa ter pelo menos 6 caracteres.'); return; }
+            if (np !== cf) { showError('As senhas não conferem.'); return; }
+
+            const btn = document.getElementById('btn');
+            btn.disabled = true; btn.textContent = 'Salvando...';
+            try {
+                const resp = await fetch(SUPABASE_URL + '/auth/v1/user', {
+                    method: 'PUT',
+                    headers: {
+                        'apikey': SUPABASE_ANON,
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ password: np })
+                });
+                if (resp.ok) {
+                    document.getElementById('form').classList.add('hidden');
+                    showOk('Senha redefinida com sucesso! <a class="link" href="/login">Entrar</a>');
+                } else {
+                    const err = await resp.json().catch(() => ({}));
+                    showError(err.msg || err.error_description || 'Não foi possível redefinir. O link pode ter expirado.');
+                    btn.disabled = false; btn.textContent = 'Salvar nova senha';
+                }
+            } catch (err) {
+                showError('Erro de conexão: ' + err.message);
+                btn.disabled = false; btn.textContent = 'Salvar nova senha';
+            }
+        });
+    </script>
 </body>
 </html>

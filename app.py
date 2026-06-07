@@ -18,19 +18,20 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from downloader import WebsiteDownloader, zip_directory, get_site_name
 import user_store
 import scrape_store
+import supabase_auth
 import mailer
 
 app = Flask(__name__)
 
-# --- Authentication ------------------------------------------------------
-# Contas de usuario com senha propria, persistidas via user_store (HF Dataset).
-# Configure no Hugging Face (Settings -> Variables and secrets):
-#   SECRET_KEY     -> chave para assinar a sessao (use SECRET, nao Variable)
-#   ADMIN_EMAILS   -> e-mails de admin (separados por virgula); sempre autorizados
-#   ALLOWED_EMAILS -> e-mails autorizados a se cadastrar (alem dos do painel admin)
-# Persistencia (escolha UM backend duravel):
-#   SUPABASE_URL + SUPABASE_KEY  -> Postgres do Supabase (preferido; SECRET a key)
-#   USERS_REPO + HF_TOKEN        -> dataset privado HF (fallback)
+# --- Authentication (Supabase Auth / GoTrue) -----------------------------
+# Usuarios, senhas e e-mails de reset/convite ficam no Supabase Auth. O app
+# mantem apenas a sessao do Flask. Configure no Hugging Face:
+#   SECRET_KEY        -> chave para assinar a sessao (SECRET)
+#   SUPABASE_URL      -> url do projeto
+#   SUPABASE_KEY      -> service_role key (SECRET) - admin/DB
+#   SUPABASE_ANON_KEY -> anon public key - login/recover/reset
+#   ADMIN_EMAILS      -> e-mails de admin (separados por virgula)
+#   SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD -> conta admin criada no boot
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(32)
 app.permanent_session_lifetime = timedelta(days=7)
 
@@ -54,39 +55,24 @@ def admin_emails():
 
 
 def bootstrap_superadmin():
-    """Cria a conta de superadmin a partir das variaveis de ambiente, caso
-    ainda nao exista. Nao sobrescreve a senha se a conta ja existir (assim a
-    troca feita pelo usuario persiste)."""
+    """Garante a conta de superadmin no Supabase Auth, a partir das variaveis
+    de ambiente. Nao sobrescreve a senha se a conta ja existir."""
     email = os.environ.get('SUPERADMIN_EMAIL', '').strip().lower()
     password = os.environ.get('SUPERADMIN_PASSWORD', '')
-    if not email or not password:
+    if not email or not password or not supabase_auth.enabled():
         return
     try:
-        if not user_store.get_user(email):
-            user_store.upsert_user(
-                email,
-                generate_password_hash(password),
-                role='admin',
-                name=os.environ.get('SUPERADMIN_NAME', 'Super Admin'),
-            )
-            print(f"[bootstrap] superadmin criado: {email}")
+        created = supabase_auth.ensure_user(
+            email, password, name=os.environ.get('SUPERADMIN_NAME', 'Super Admin')
+        )
+        if created:
+            print(f"[bootstrap] superadmin criado no Supabase: {email}")
     except Exception as exc:
         print(f"[bootstrap] falha ao criar superadmin: {exc}")
 
 
 def is_admin(email):
     return bool(email) and email.lower() in admin_emails()
-
-
-def can_register(email):
-    """Quem pode criar conta: admins, e-mails do ALLOWED_EMAILS (env) ou da
-    allowlist gerenciada pelo admin no painel."""
-    email = (email or '').lower()
-    return (
-        email in admin_emails()
-        or email in _env_emails('ALLOWED_EMAILS')
-        or user_store.is_allowed(email)
-    )
 
 
 def login_required(view):
@@ -250,19 +236,26 @@ threading.Thread(target=cleanup_abandoned_sessions, daemon=True).start()
 bootstrap_superadmin()
 
 
-def _display_name(email):
-    user = user_store.get_user(email) or {}
-    name = user.get('name')
-    if name:
-        return name
-    return (email or '').split('@')[0]
+def _display_name_from_user(user):
+    if not user:
+        return ''
+    meta = user.get('user_metadata') or {}
+    return meta.get('name') or (user.get('email') or '').split('@')[0]
 
 
-def _start_session(email):
+def _start_session(email, name=None, user_id=None):
     session['user_email'] = email
-    session['user_name'] = _display_name(email)
+    session['user_name'] = name or (email or '').split('@')[0]
+    session['user_id'] = user_id
     session['is_admin'] = is_admin(email)
     session.permanent = True
+
+
+def _base_url():
+    base = os.environ.get('APP_BASE_URL', '').strip().rstrip('/')
+    if base:
+        return base
+    return request.url_root.rstrip('/')
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -275,153 +268,58 @@ def login():
         email = (request.form.get('email') or '').strip().lower()
         password = request.form.get('password') or ''
 
-        # Fallback robusto: o superadmin SEMPRE entra com as credenciais do
-        # ambiente, mesmo que a persistencia (Supabase/Dataset) esteja indisponivel.
+        # Superadmin sempre entra com as credenciais do ambiente (rede de seguranca).
         sa_email = os.environ.get('SUPERADMIN_EMAIL', '').strip().lower()
         sa_pass = os.environ.get('SUPERADMIN_PASSWORD', '')
         if sa_email and sa_pass and email == sa_email and password == sa_pass:
-            try:
-                if not user_store.get_user(email):
-                    user_store.upsert_user(
-                        email, generate_password_hash(password), role='admin',
-                        name=os.environ.get('SUPERADMIN_NAME', 'Super Admin'),
-                    )
-            except Exception as exc:
-                print(f"[login] superadmin upsert falhou (seguindo mesmo assim): {exc}")
-            _start_session(email)
+            _start_session(email, name=os.environ.get('SUPERADMIN_NAME', 'Super Admin'))
             return redirect(url_for('index'))
 
-        user = user_store.get_user(email)
         if not EMAIL_RE.match(email) or not password:
             error = 'Informe e-mail e senha.'
-        elif not user:
-            error = 'Conta não encontrada. Crie sua senha em "Criar conta".'
-        elif not user.get('active', True):
-            error = 'Esta conta está desativada. Fale com o administrador.'
-        elif not check_password_hash(user.get('password_hash', ''), password):
-            error = 'E-mail ou senha incorretos.'
+        elif not supabase_auth.enabled():
+            error = 'Autenticação ainda não configurada. Tente novamente em instantes.'
         else:
-            _start_session(email)
-            return redirect(url_for('index'))
+            try:
+                user = supabase_auth.sign_in(email, password)
+            except Exception as exc:
+                print(f"[login] erro no Supabase: {exc}")
+                user = None
+            if not user:
+                error = 'E-mail ou senha incorretos.'
+            else:
+                _start_session(
+                    email, name=_display_name_from_user(user), user_id=user.get('id')
+                )
+                return redirect(url_for('index'))
 
     return render_template('login.html', error=error)
-
-
-@app.route('/signup', methods=['GET', 'POST'])
-def signup():
-    if session.get('user_email'):
-        return redirect(url_for('index'))
-
-    error = None
-    if request.method == 'POST':
-        name = (request.form.get('name') or '').strip()
-        email = (request.form.get('email') or '').strip().lower()
-        password = request.form.get('password') or ''
-        confirm = request.form.get('confirm') or ''
-
-        if not EMAIL_RE.match(email):
-            error = 'Digite um e-mail válido.'
-        elif not can_register(email):
-            error = 'Este e-mail não está autorizado. Peça ao administrador para liberar seu acesso.'
-        elif user_store.get_user(email):
-            error = 'Já existe uma conta com este e-mail. Faça login.'
-        elif len(password) < 6:
-            error = 'A senha precisa ter pelo menos 6 caracteres.'
-        elif password != confirm:
-            error = 'As senhas não conferem.'
-        else:
-            role = 'admin' if is_admin(email) else 'user'
-            user_store.upsert_user(
-                email, generate_password_hash(password), role=role, name=name or None
-            )
-            _start_session(email)
-            return redirect(url_for('index'))
-
-    return render_template('signup.html', error=error)
-
-
-def _base_url():
-    base = os.environ.get('APP_BASE_URL', '').strip().rstrip('/')
-    if base:
-        return base
-    return request.url_root.rstrip('/')
-
-
-def _send_reset_email(email):
-    token = _secrets.token_urlsafe(32)
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    expires = time.time() + 3600  # 1 hora
-    user_store.set_reset(email, token_hash, expires)
-
-    link = f"{_base_url()}/reset?email={email}&token={token}"
-    html = f"""
-        <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto">
-          <h2>Buffallos · Redefinir senha</h2>
-          <p>Recebemos um pedido para redefinir a senha desta conta.</p>
-          <p><a href="{link}" style="background:#4a6cf7;color:#fff;padding:12px 20px;
-             border-radius:8px;text-decoration:none;display:inline-block">Redefinir minha senha</a></p>
-          <p style="color:#666;font-size:13px">Ou copie e cole este link (válido por 1 hora):<br>{link}</p>
-          <p style="color:#999;font-size:12px">Se você não pediu isso, ignore este e-mail.</p>
-        </div>
-    """
-    return mailer.send_email(email, "Buffallos · Redefinir sua senha", html)
 
 
 @app.route('/forgot', methods=['GET', 'POST'])
 def forgot():
     message = None
-    error = None
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip().lower()
-        user = user_store.get_user(email)
-        if user:
-            if mailer.enabled():
-                _send_reset_email(email)
-            else:
-                user_store.set_pending_reset(email, True)
+        if EMAIL_RE.match(email) and supabase_auth.enabled():
+            try:
+                supabase_auth.send_recovery(email, redirect_to=f"{_base_url()}/reset")
+            except Exception as exc:
+                print(f"[forgot] erro: {exc}")
         # Resposta neutra para nao revelar quais e-mails existem.
-        if mailer.enabled():
-            message = ('Se houver uma conta com este e-mail, enviamos um link '
-                       'para redefinir a senha. Verifique sua caixa de entrada e spam.')
-        else:
-            message = ('Se houver uma conta com este e-mail, o administrador foi '
-                       'avisado e vai redefinir sua senha em breve.')
-
-    return render_template('forgot.html', message=message, error=error)
+        message = ('Se houver uma conta com este e-mail, enviamos um link para '
+                   'redefinir a senha. Verifique a caixa de entrada e o spam.')
+    return render_template('forgot.html', message=message, error=None)
 
 
-@app.route('/reset', methods=['GET', 'POST'])
+@app.route('/reset')
 def reset():
-    email = (request.values.get('email') or '').strip().lower()
-    token = request.values.get('token') or ''
-    error = None
-
-    user = user_store.get_user(email)
-    token_hash = hashlib.sha256(token.encode()).hexdigest() if token else ''
-    valid = bool(
-        user
-        and token
-        and user.get('reset_token')
-        and _secrets.compare_digest(user.get('reset_token', ''), token_hash)
-        and (user.get('reset_expires', 0) or 0) > time.time()
-    )
-
-    if request.method == 'POST':
-        if not valid:
-            error = 'Link inválido ou expirado. Solicite um novo.'
-        else:
-            new = request.form.get('new') or ''
-            confirm = request.form.get('confirm') or ''
-            if len(new) < 6:
-                error = 'A nova senha precisa ter pelo menos 6 caracteres.'
-            elif new != confirm:
-                error = 'As senhas não conferem.'
-            else:
-                user_store.set_password(email, generate_password_hash(new))
-                return render_template('reset.html', done=True)
-
+    # O Supabase manda o token no fragmento da URL (#access_token=...). A troca
+    # de senha e feita no navegador (reset.html) chamando o Supabase com a anon key.
     return render_template(
-        'reset.html', email=email, token=token, valid=valid, error=error, done=False
+        'reset.html',
+        supabase_url=user_store.SUPABASE_URL,
+        supabase_anon=supabase_auth.ANON_KEY,
     )
 
 
@@ -429,7 +327,6 @@ def reset():
 @login_required
 def account():
     email = session.get('user_email')
-    user = user_store.get_user(email)
     message = None
     error = None
 
@@ -438,15 +335,19 @@ def account():
         new = request.form.get('new') or ''
         confirm = request.form.get('confirm') or ''
 
-        if not user or not check_password_hash(user.get('password_hash', ''), current):
-            error = 'Senha atual incorreta.'
-        elif len(new) < 6:
+        if len(new) < 6:
             error = 'A nova senha precisa ter pelo menos 6 caracteres.'
         elif new != confirm:
             error = 'As senhas não conferem.'
+        elif not supabase_auth.enabled() or not supabase_auth.sign_in(email, current):
+            error = 'Senha atual incorreta.'
         else:
-            user_store.set_password(email, generate_password_hash(new))
-            message = 'Senha atualizada com sucesso.'
+            try:
+                user = supabase_auth.admin_get_by_email(email)
+                supabase_auth.admin_set_password(user['id'], new)
+                message = 'Senha atualizada com sucesso.'
+            except Exception as exc:
+                error = f'Não foi possível atualizar a senha: {exc}'
 
     return render_template('account.html', user_email=email, message=message, error=error)
 
@@ -454,37 +355,34 @@ def account():
 @app.route('/admin')
 @admin_required
 def admin():
-    users = user_store.list_users()
-    allowlist = sorted(user_store.get_allowlist())
-    temp_password = session.pop('temp_password', None)
-    temp_for = session.pop('temp_for', None)
+    users = []
+    err = None
+    try:
+        users = supabase_auth.admin_list_users()
+    except Exception as exc:
+        err = str(exc)
+    msg = session.pop('admin_msg', None)
     return render_template(
         'admin.html',
         user_email=session.get('user_email'),
         users=users,
-        allowlist=allowlist,
         admin_emails=sorted(admin_emails()),
-        temp_password=temp_password,
-        temp_for=temp_for,
-        hub_ok=user_store.is_persistent(),
-        backend=user_store.backend_name(),
+        message=msg,
+        error=err,
+        auth_ok=supabase_auth.enabled(),
     )
 
 
-@app.route('/admin/allow', methods=['POST'])
+@app.route('/admin/invite', methods=['POST'])
 @admin_required
-def admin_allow():
+def admin_invite():
     email = (request.form.get('email') or '').strip().lower()
     if EMAIL_RE.match(email):
-        user_store.add_allowed(email)
-    return redirect(url_for('admin'))
-
-
-@app.route('/admin/remove-allow', methods=['POST'])
-@admin_required
-def admin_remove_allow():
-    email = (request.form.get('email') or '').strip().lower()
-    user_store.remove_allowed(email)
+        try:
+            supabase_auth.admin_invite(email, redirect_to=f"{_base_url()}/reset")
+            session['admin_msg'] = f"Convite enviado para {email}."
+        except Exception as exc:
+            session['admin_msg'] = f"Falha ao convidar {email}: {exc}"
     return redirect(url_for('admin'))
 
 
@@ -492,31 +390,26 @@ def admin_remove_allow():
 @admin_required
 def admin_reset():
     email = (request.form.get('email') or '').strip().lower()
-    if user_store.get_user(email):
-        temp = _secrets.token_urlsafe(6)
-        user_store.set_password(email, generate_password_hash(temp))
-        # Mostrado uma unica vez ao admin para repassar ao usuario.
-        session['temp_password'] = temp
-        session['temp_for'] = email
-    return redirect(url_for('admin'))
-
-
-@app.route('/admin/toggle', methods=['POST'])
-@admin_required
-def admin_toggle():
-    email = (request.form.get('email') or '').strip().lower()
-    user = user_store.get_user(email)
-    if user:
-        user_store.set_active(email, not user.get('active', True))
+    if EMAIL_RE.match(email):
+        try:
+            supabase_auth.send_recovery(email, redirect_to=f"{_base_url()}/reset")
+            session['admin_msg'] = f"E-mail de redefinição enviado para {email}."
+        except Exception as exc:
+            session['admin_msg'] = f"Falha ao enviar redefinição: {exc}"
     return redirect(url_for('admin'))
 
 
 @app.route('/admin/delete', methods=['POST'])
 @admin_required
 def admin_delete():
+    user_id = (request.form.get('user_id') or '').strip()
     email = (request.form.get('email') or '').strip().lower()
-    if email != session.get('user_email'):
-        user_store.delete_user(email)
+    if user_id and email != session.get('user_email'):
+        try:
+            supabase_auth.admin_delete_user(user_id)
+            session['admin_msg'] = f"Conta {email} excluída."
+        except Exception as exc:
+            session['admin_msg'] = f"Falha ao excluir: {exc}"
     return redirect(url_for('admin'))
 
 
@@ -532,7 +425,7 @@ def index():
     return render_template(
         'index.html',
         user_email=session.get('user_email'),
-        user_name=session.get('user_name') or _display_name(session.get('user_email')),
+        user_name=session.get('user_name') or (session.get('user_email') or '').split('@')[0],
         is_admin=session.get('is_admin', False),
         library_enabled=scrape_store.enabled(),
     )

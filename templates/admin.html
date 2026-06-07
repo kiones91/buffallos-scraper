@@ -25,19 +25,14 @@
         .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.72rem; font-weight:600; }
         .pill.admin { background:#ede9fe; color:#5b21b6; }
         .pill.on { background:#dcfce7; color:#166534; }
-        .pill.off { background:#fee2e2; color:#b91c1c; }
-        .pill.reset { background:#fef3c7; color:#92400e; }
+        .pill.off { background:#fef3c7; color:#92400e; }
         form.inline { display:inline; }
         .btn { border:none; border-radius:8px; padding:6px 10px; font-size:0.78rem; font-weight:600; cursor:pointer; }
-        .btn-blue { background:#4a6cf7; color:#fff; }
         .btn-gray { background:#e5e7eb; color:#374151; }
+        .btn-blue { background:#4a6cf7; color:#fff; }
         .btn-red { background:#fee2e2; color:#b91c1c; }
         .row-form { display:flex; gap:8px; margin:0.5rem 0 0.25rem 0; flex-wrap:wrap; }
-        .row-form input { flex:1; min-width:200px; padding:10px 12px; border:2px solid #e0e0e0; border-radius:8px; font-size:0.9rem; }
-        .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
-        .chip { background:#f1f5f9; border-radius:999px; padding:4px 10px; font-size:0.78rem; display:flex; align-items:center; gap:6px; }
-        .chip form { display:inline; }
-        .chip button { background:none; border:none; color:#b91c1c; cursor:pointer; font-weight:700; }
+        .row-form input { flex:1; min-width:220px; padding:10px 12px; border:2px solid #e0e0e0; border-radius:8px; font-size:0.9rem; }
     </style>
 </head>
 <body>
@@ -48,86 +43,61 @@
         </div>
         <p class="muted">Logado como {{ user_email }}</p>
 
-        {% if not hub_ok %}
+        {% if not auth_ok %}
         <div class="banner warn">
-            ⚠️ Persistência não configurada. As contas funcionam, mas <b>serão perdidas
-            quando o Space reiniciar</b>. Configure o Supabase (SUPABASE_URL +
-            SUPABASE_KEY) ou o dataset HF (USERS_REPO + HF_TOKEN).
+            ⚠️ Supabase Auth não configurado (faltam SUPABASE_URL / SUPABASE_KEY / SUPABASE_ANON_KEY).
         </div>
         {% else %}
-        <div class="banner ok">
-            ✅ Persistência ativa — backend: <b>{{ backend }}</b>. As contas ficam salvas.
-        </div>
+        <div class="banner ok">✅ Autenticação ativa via Supabase Auth.</div>
         {% endif %}
 
-        {% if temp_password %}
-        <div class="banner ok">
-            🔑 Senha temporária gerada para <b>{{ temp_for }}</b>:
-            <code style="font-size:1rem;">{{ temp_password }}</code><br>
-            Repasse para a pessoa. Ela deve entrar e trocar em "Minha conta". (Mostrado só uma vez.)
-        </div>
-        {% endif %}
+        {% if message %}<div class="banner ok">{{ message }}</div>{% endif %}
+        {% if error %}<div class="banner warn">Erro: {{ error }}</div>{% endif %}
 
-        <h2>Autorizar novo e-mail</h2>
-        <p class="muted">E-mails autorizados podem criar a própria senha em "Criar conta".</p>
-        <form class="row-form" method="POST" action="/admin/allow">
+        <h2>Convidar / autorizar e-mail</h2>
+        <p class="muted">A pessoa recebe um e-mail para definir a própria senha e já fica autorizada.</p>
+        <form class="row-form" method="POST" action="/admin/invite">
             <input type="email" name="email" placeholder="novo@email.com" required>
-            <button class="btn btn-blue" type="submit">Autorizar</button>
+            <button class="btn btn-blue" type="submit">Enviar convite</button>
         </form>
-        <div class="chips">
-            {% for email in allowlist %}
-            <span class="chip">{{ email }}
-                <form method="POST" action="/admin/remove-allow">
-                    <input type="hidden" name="email" value="{{ email }}">
-                    <button title="Remover autorização" type="submit">×</button>
-                </form>
-            </span>
-            {% else %}
-            <span class="muted">Nenhum e-mail na lista (além dos admins/ALLOWED_EMAILS).</span>
-            {% endfor %}
-        </div>
 
-        <h2>Contas criadas</h2>
+        <h2>Contas</h2>
         <table>
             <thead>
                 <tr><th>E-mail</th><th>Tipo</th><th>Status</th><th>Ações</th></tr>
             </thead>
             <tbody>
-                {% for email, u in users.items() %}
+                {% for u in users %}
                 <tr>
-                    <td>{{ email }}</td>
+                    <td>{{ u.email }}</td>
                     <td>
-                        {% if u.role == 'admin' %}<span class="pill admin">admin</span>{% else %}usuário{% endif %}
+                        {% if u.email and u.email|lower in admin_emails %}<span class="pill admin">admin</span>{% else %}usuário{% endif %}
                     </td>
                     <td>
-                        {% if u.active %}<span class="pill on">ativo</span>{% else %}<span class="pill off">inativo</span>{% endif %}
-                        {% if u.pending_reset %}<span class="pill reset">pediu reset</span>{% endif %}
+                        {% if u.email_confirmed_at or u.confirmed_at %}<span class="pill on">ativo</span>{% else %}<span class="pill off">convidado</span>{% endif %}
                     </td>
                     <td>
                         <form class="inline" method="POST" action="/admin/reset">
-                            <input type="hidden" name="email" value="{{ email }}">
-                            <button class="btn btn-gray" type="submit">Resetar senha</button>
+                            <input type="hidden" name="email" value="{{ u.email }}">
+                            <button class="btn btn-gray" type="submit">Redefinir por e-mail</button>
                         </form>
-                        <form class="inline" method="POST" action="/admin/toggle">
-                            <input type="hidden" name="email" value="{{ email }}">
-                            <button class="btn btn-gray" type="submit">{% if u.active %}Desativar{% else %}Ativar{% endif %}</button>
-                        </form>
-                        {% if email != user_email %}
-                        <form class="inline" method="POST" action="/admin/delete" onsubmit="return confirm('Excluir a conta {{ email }}?');">
-                            <input type="hidden" name="email" value="{{ email }}">
+                        {% if u.email != user_email %}
+                        <form class="inline" method="POST" action="/admin/delete" onsubmit="return confirm('Excluir a conta {{ u.email }}?');">
+                            <input type="hidden" name="user_id" value="{{ u.id }}">
+                            <input type="hidden" name="email" value="{{ u.email }}">
                             <button class="btn btn-red" type="submit">Excluir</button>
                         </form>
                         {% endif %}
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="4" class="muted">Nenhuma conta criada ainda.</td></tr>
+                <tr><td colspan="4" class="muted">Nenhuma conta ainda.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
 
         <h2>Administradores</h2>
-        <p class="muted">Definidos na variável <code>ADMIN_EMAILS</code>: {{ admin_emails | join(', ') if admin_emails else '— nenhum definido —' }}</p>
+        <p class="muted">Definidos na variável <code>ADMIN_EMAILS</code>: {{ admin_emails | join(', ') if admin_emails else '— nenhum —' }}</p>
     </div>
 </body>
 </html>
