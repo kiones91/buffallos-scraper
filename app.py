@@ -32,8 +32,19 @@ app = Flask(__name__)
 #   SUPABASE_ANON_KEY -> anon public key - login/recover/reset
 #   ADMIN_EMAILS      -> e-mails de admin (separados por virgula)
 #   SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD -> conta admin criada no boot
-app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(32)
+_secret = os.environ.get('SECRET_KEY', '').strip()
+if not _secret:
+    _secret = os.urandom(32)
+    print('[auth] AVISO: SECRET_KEY ausente — sessoes nao persistem entre reinicios.')
+app.secret_key = _secret
 app.permanent_session_lifetime = timedelta(days=7)
+# HF Spaces roda em HTTPS; quando o app abre dentro do iframe do huggingface.co,
+# cookies SameSite=Lax (padrao) sao bloqueados. None+Secure permite login no embed.
+app.config.update(
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='None',
+)
 
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 

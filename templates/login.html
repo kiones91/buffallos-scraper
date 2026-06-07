@@ -107,6 +107,11 @@
         <div class="error">{{ error }}</div>
         {% endif %}
 
+        <div id="embedHint" style="display:none; background:#eff6ff; color:#1e40af; padding:0.75rem 1rem; border-radius:10px; font-size:0.82rem; margin-bottom:1rem; text-align:center;">
+            Se o login não mantém, abra direto:
+            <a href="https://kiones-buffallos-scraper.hf.space/login" style="color:#4a6cf7; font-weight:600;">kiones-buffallos-scraper.hf.space</a>
+        </div>
+
         <form method="POST" action="/login">
             <div class="input-group">
                 <label for="email">E-mail</label>
@@ -127,5 +132,8 @@
 
         <div class="footer">Buffallos Tecnologia · acesso por convite</div>
     </div>
+    <script>
+        try { if (window.self !== window.top) document.getElementById('embedHint').style.display = 'block'; } catch (e) {}
+    </script>
 </body>
 </html>
