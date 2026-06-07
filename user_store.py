@@ -251,7 +251,7 @@ def remove_allowed(email):
             _persist()
 
 
-def upsert_user(email, password_hash, role="user"):
+def upsert_user(email, password_hash, role="user", name=None):
     _ensure_loaded()
     now = time.time()
     with _LOCK:
@@ -265,6 +265,8 @@ def upsert_user(email, password_hash, role="user"):
                 "updated_at": now,
             }
         )
+        if name:
+            existing["name"] = name
         existing.setdefault("created_at", now)
         _STATE["users"][email] = existing
         _persist()

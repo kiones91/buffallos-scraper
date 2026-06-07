@@ -16,6 +16,7 @@ from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from downloader import WebsiteDownloader, zip_directory, get_site_name
 import user_store
+import scrape_store
 
 app = Flask(__name__)
 
@@ -220,8 +221,17 @@ def cleanup_abandoned_sessions():
 threading.Thread(target=cleanup_abandoned_sessions, daemon=True).start()
 
 
+def _display_name(email):
+    user = user_store.get_user(email) or {}
+    name = user.get('name')
+    if name:
+        return name
+    return (email or '').split('@')[0]
+
+
 def _start_session(email):
     session['user_email'] = email
+    session['user_name'] = _display_name(email)
     session['is_admin'] = is_admin(email)
     session.permanent = True
 
@@ -259,6 +269,7 @@ def signup():
 
     error = None
     if request.method == 'POST':
+        name = (request.form.get('name') or '').strip()
         email = (request.form.get('email') or '').strip().lower()
         password = request.form.get('password') or ''
         confirm = request.form.get('confirm') or ''
@@ -275,7 +286,9 @@ def signup():
             error = 'As senhas não conferem.'
         else:
             role = 'admin' if is_admin(email) else 'user'
-            user_store.upsert_user(email, generate_password_hash(password), role=role)
+            user_store.upsert_user(
+                email, generate_password_hash(password), role=role, name=name or None
+            )
             _start_session(email)
             return redirect(url_for('index'))
 
@@ -405,7 +418,9 @@ def index():
     return render_template(
         'index.html',
         user_email=session.get('user_email'),
+        user_name=session.get('user_name') or _display_name(session.get('user_email')),
         is_admin=session.get('is_admin', False),
+        library_enabled=scrape_store.enabled(),
     )
 
 
@@ -447,6 +462,7 @@ def start_download():
 
     session_id = str(uuid.uuid4())
     now = time.time()
+    user_email = session.get('user_email')
 
     with session_lock:
         message_queues[session_id] = queue.Queue()
@@ -457,14 +473,14 @@ def start_download():
             'started_at': now,
         }
 
-    thread = threading.Thread(target=process_download, args=(session_id, url))
+    thread = threading.Thread(target=process_download, args=(session_id, url, user_email))
     thread.daemon = True
     thread.start()
 
     return jsonify({'session_id': session_id})
 
 
-def process_download(session_id, url):
+def process_download(session_id, url, user_email=None):
     """Background download worker."""
     with session_lock:
         q = message_queues.get(session_id)
@@ -502,12 +518,26 @@ def process_download(session_id, url):
         if os.path.isdir(download_dir):
             shutil.rmtree(download_dir, ignore_errors=True)
 
-        q.put("🎉 Download pronto!")
+        saved_to_library = False
+        if scrape_store.enabled() and user_email:
+            try:
+                q.put("☁️ Salvando na sua biblioteca (Supabase)...")
+                scrape_store.add_scrape(user_email, url, site_name, zip_path)
+                saved_to_library = True
+                # ZIP agora vive no Supabase; libera o disco efemero do Space.
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+            except Exception as up_err:
+                q.put(f"⚠️ Não consegui salvar na biblioteca: {up_err}. "
+                      f"Você ainda pode baixar agora.")
+
+        q.put("🎉 Pronto!")
         with session_lock:
             download_results[session_id] = {
                 'status': 'complete',
-                'zip_path': zip_path,
+                'zip_path': None if saved_to_library else zip_path,
                 'filename': zip_filename,
+                'saved': saved_to_library,
                 'created_at': time.time(),
             }
 
@@ -610,6 +640,57 @@ def download_file(session_id):
     except Exception as e:
         print(f"❌ Erro ao enviar arquivo: {e}")
         return "Error sending file", 500
+
+
+@app.route('/api/scrapes')
+@login_required
+def api_scrapes():
+    """List the logged-in user's saved scrapes (JSON)."""
+    if not scrape_store.enabled():
+        return jsonify({'enabled': False, 'items': []})
+    try:
+        items = scrape_store.list_scrapes(session.get('user_email'))
+        return jsonify({'enabled': True, 'items': items})
+    except Exception as e:
+        return jsonify({'enabled': True, 'items': [], 'error': str(e)}), 500
+
+
+@app.route('/scrape/<scrape_id>/download')
+@login_required
+def scrape_download(scrape_id):
+    """Stream a saved ZIP from Supabase Storage to the user."""
+    if not scrape_store.enabled():
+        return "Biblioteca indisponível", 404
+    row = scrape_store.get_scrape(scrape_id, session.get('user_email'))
+    if not row:
+        return "Não encontrado", 404
+    try:
+        data = scrape_store.download_bytes(row['storage_path'])
+    except Exception as e:
+        print(f"❌ Erro ao baixar do Supabase: {e}")
+        return "Erro ao baixar arquivo", 500
+
+    filename = f"{row.get('site_name') or 'site'}.zip"
+    return Response(
+        data,
+        mimetype='application/zip',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Content-Length': str(len(data)),
+        },
+    )
+
+
+@app.route('/scrape/<scrape_id>/delete', methods=['POST'])
+@login_required
+def scrape_delete(scrape_id):
+    if not scrape_store.enabled():
+        return jsonify({'error': 'unavailable'}), 404
+    try:
+        ok = scrape_store.delete_scrape(scrape_id, session.get('user_email'))
+        return jsonify({'ok': bool(ok)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 if __name__ == '__main__':

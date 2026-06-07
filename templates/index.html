@@ -3,314 +3,302 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Website Downloader</title>
+    <title>Buffallos · Website Downloader</title>
     <style>
-        * {
-            box-sizing: border-box;
+        :root {
+            --bg: #0f1420;
+            --side: #151b2b;
+            --side2: #1b2335;
+            --card: #ffffff;
+            --accent: #4a6cf7;
+            --accent2: #6366f1;
+            --text: #e8ebf2;
+            --muted: #9aa3b2;
         }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; height: 100%; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 2.5rem;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            width: 100%;
-            max-width: 520px;
-        }
-        h1 {
-            margin: 0 0 0.5rem 0;
-            font-size: 1.75rem;
-            font-weight: 700;
+            background: var(--bg);
             color: #1a1a2e;
-        }
-        .subtitle {
-            color: #666;
-            font-size: 0.9rem;
-            margin-bottom: 1.5rem;
-        }
-        .input-group {
-            margin-bottom: 1rem;
-        }
-        input[type="url"] {
-            width: 100%;
-            padding: 14px 16px;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            font-size: 1rem;
-            outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-        input[type="url"]:focus {
-            border-color: #4a6cf7;
-            box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.1);
-        }
-        input[type="url"]:disabled {
-            background: #f5f5f5;
-            color: #999;
-        }
-        button {
-            background: linear-gradient(135deg, #4a6cf7 0%, #6366f1 100%);
-            color: white;
-            border: none;
-            padding: 14px 24px;
-            font-size: 1rem;
-            border-radius: 10px;
-            cursor: pointer;
-            width: 100%;
-            font-weight: 600;
-            transition: transform 0.2s, box-shadow 0.2s;
             display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
+            min-height: 100vh;
         }
-        button:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(74, 108, 247, 0.4);
+        /* ---------- Sidebar ---------- */
+        .sidebar {
+            width: 260px;
+            background: linear-gradient(180deg, var(--side) 0%, var(--side2) 100%);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            padding: 22px 16px;
+            position: sticky;
+            top: 0;
+            height: 100vh;
         }
-        button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
+        .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.15rem; margin-bottom: 22px; }
+        .brand .logo { font-size: 1.6rem; }
+        .user-box {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 20px;
         }
-        .spinner {
-            width: 18px;
-            height: 18px;
-            border: 2px solid rgba(255,255,255,0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 0.8s linear infinite;
+        .user-box .name { font-weight: 700; font-size: 0.95rem; }
+        .user-box .email { color: var(--muted); font-size: 0.75rem; word-break: break-all; }
+        .nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+        .nav button, .nav a {
+            display: flex; align-items: center; gap: 10px;
+            background: none; border: none; color: var(--text);
+            text-align: left; padding: 11px 12px; border-radius: 10px;
+            font-size: 0.92rem; cursor: pointer; text-decoration: none; width: 100%;
+            transition: background 0.15s;
         }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        .nav button:hover, .nav a:hover { background: rgba(255,255,255,0.06); }
+        .nav button.active { background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%); font-weight: 600; }
+        .nav .sep { height: 1px; background: rgba(255,255,255,0.08); margin: 10px 4px; }
+        .nav .muted { color: var(--muted); font-size: 0.72rem; padding: 4px 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+        /* ---------- Main ---------- */
+        .main { flex: 1; padding: 28px 32px; overflow-y: auto; height: 100vh; }
+        .page-head { margin-bottom: 22px; }
+        .page-head h1 { margin: 0; font-size: 1.5rem; color: #fff; }
+        .page-head p { margin: 4px 0 0; color: var(--muted); font-size: 0.9rem; }
+        .card {
+            background: var(--card); border-radius: 16px; padding: 1.75rem;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.25); max-width: 720px;
         }
-        .log-container {
-            margin-top: 1.5rem;
-            background: #1a1a2e;
-            border-radius: 10px;
-            padding: 1rem;
-            max-height: 200px;
-            overflow-y: auto;
-            display: none;
+        .input-row { display: flex; gap: 10px; flex-wrap: wrap; }
+        input[type="url"] {
+            flex: 1; min-width: 220px; padding: 14px 16px; border: 2px solid #e0e0e0;
+            border-radius: 10px; font-size: 1rem; outline: none; transition: border-color 0.2s, box-shadow 0.2s;
         }
-        .log-container.active {
-            display: block;
+        input[type="url"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(74,108,247,0.12); }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+            color: #fff; border: none; padding: 14px 22px; font-size: 1rem; border-radius: 10px;
+            cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; gap: 10px;
+            transition: transform 0.15s, box-shadow 0.15s;
         }
-        .log-entry {
-            color: #a0a0a0;
-            font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
-            font-size: 0.8rem;
-            padding: 4px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            animation: fadeIn 0.3s ease;
-        }
-        .log-entry:last-child {
-            border-bottom: none;
-            color: #4ade80;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-5px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .success-message {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-            padding: 1rem;
-            border-radius: 10px;
-            margin-top: 1rem;
-            text-align: center;
-            display: none;
-            animation: slideUp 0.3s ease;
-        }
-        .success-message.active {
-            display: block;
-        }
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .success-message a {
-            color: white;
-            font-weight: 600;
-            text-decoration: underline;
+        .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(74,108,247,0.4); }
+        .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+        .spinner { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.35); border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .log-container { margin-top: 1.25rem; background: #0f1420; border-radius: 10px; padding: 1rem; max-height: 240px; overflow-y: auto; display: none; }
+        .log-container.active { display: block; }
+        .log-entry { color: #a9b2c3; font-family: 'SF Mono','Monaco','Consolas',monospace; font-size: 0.8rem; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .log-entry:last-child { border-bottom: none; color: #4ade80; }
+        .toast { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; padding: 0.9rem 1rem; border-radius: 10px; margin-top: 1rem; display: none; }
+        .toast.active { display: block; }
+        .toast a { color: #fff; font-weight: 700; }
+        /* ---------- Library ---------- */
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+        .site-card { background: #fff; border-radius: 14px; padding: 16px; box-shadow: 0 8px 26px rgba(0,0,0,0.2); display: flex; flex-direction: column; gap: 8px; }
+        .site-card .title { font-weight: 700; font-size: 1rem; color: #1a1a2e; word-break: break-word; }
+        .site-card .url { color: #4a6cf7; font-size: 0.8rem; word-break: break-all; text-decoration: none; }
+        .site-card .meta { color: #888; font-size: 0.75rem; }
+        .site-card .actions { display: flex; gap: 8px; margin-top: 6px; }
+        .btn-sm { border: none; border-radius: 8px; padding: 9px 12px; font-size: 0.82rem; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-dl { background: var(--accent); color: #fff; }
+        .btn-del { background: #fee2e2; color: #b91c1c; }
+        .empty { color: var(--muted); background: rgba(255,255,255,0.04); border: 1px dashed rgba(255,255,255,0.15); border-radius: 14px; padding: 2rem; text-align: center; }
+        .warnbox { background: #fef3c7; color: #92400e; border-radius: 12px; padding: 1rem; font-size: 0.88rem; max-width: 720px; }
+        .hidden { display: none !important; }
+        @media (max-width: 760px) {
+            body { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; position: relative; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+            .sidebar .user-box { display: none; }
+            .nav { flex-direction: row; flex-wrap: wrap; }
+            .nav .sep, .nav .muted { display: none; }
+            .main { height: auto; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🌐 Website Downloader</h1>
-        <p class="subtitle">Baixe uma réplica perfeita de qualquer site, incluindo JS renderizado</p>
+    <aside class="sidebar">
+        <div class="brand"><span class="logo">🐂</span> Buffallos</div>
+        <div class="user-box">
+            <div class="name">{{ user_name }}</div>
+            <div class="email">{{ user_email }}</div>
+        </div>
+        <nav class="nav">
+            <span class="muted">Ferramenta</span>
+            <button id="nav-new" class="active" onclick="showSection('new')">🌐 Nova Raspagem</button>
+            <button id="nav-library" onclick="showSection('library')">📚 Minha Biblioteca</button>
+            <div class="sep"></div>
+            <span class="muted">Conta</span>
+            <a href="/account">⚙️ Minha conta</a>
+            {% if is_admin %}<a href="/admin">🛠️ Admin</a>{% endif %}
+            <a href="/logout">🚪 Sair</a>
+        </nav>
+    </aside>
 
-        {% if user_email %}
-        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; color:#888; margin:-0.5rem 0 1rem 0; gap:12px; flex-wrap:wrap;">
-            <span>👤 {{ user_email }}</span>
-            <span style="display:flex; gap:12px;">
-                {% if is_admin %}<a href="/admin" style="color:#4a6cf7; text-decoration:none; font-weight:600;">Admin</a>{% endif %}
-                <a href="/account" style="color:#4a6cf7; text-decoration:none; font-weight:600;">Minha conta</a>
-                <a href="/logout" style="color:#4a6cf7; text-decoration:none; font-weight:600;">Sair</a>
-            </span>
-        </div>
-        {% endif %}
-        
-        <div class="input-group">
-            <input type="url" id="urlInput" placeholder="https://exemplo.com" required>
-        </div>
-        
-        <button id="downloadBtn" onclick="startDownload()">
-            <span id="btnText">Baixar Réplica</span>
-            <div class="spinner" id="spinner" style="display: none;"></div>
-        </button>
-        
-        <div class="log-container" id="logContainer"></div>
-        
-        <div class="success-message" id="successMessage">
-            ✅ Download pronto! <a href="#" id="downloadLink">Clique aqui se não iniciou automaticamente</a>
-        </div>
-    </div>
+    <main class="main">
+        <!-- NOVA RASPAGEM -->
+        <section id="section-new">
+            <div class="page-head">
+                <h1>Nova Raspagem</h1>
+                <p>Cole a URL do site. Ele é baixado completo (HTML, CSS, JS, imagens){% if library_enabled %} e salvo direto na sua biblioteca{% endif %}.</p>
+            </div>
+            <div class="card">
+                <div class="input-row">
+                    <input type="url" id="urlInput" placeholder="https://exemplo.com">
+                    <button class="btn-primary" id="downloadBtn" onclick="startDownload()">
+                        <span id="btnText">Raspar site</span>
+                        <div class="spinner hidden" id="spinner"></div>
+                    </button>
+                </div>
+                <div class="log-container" id="logContainer"></div>
+                <div class="toast" id="toast"></div>
+            </div>
+        </section>
+
+        <!-- BIBLIOTECA -->
+        <section id="section-library" class="hidden">
+            <div class="page-head">
+                <h1>Minha Biblioteca</h1>
+                <p>Sites que você raspou ficam salvos aqui. Baixe quando quiser.</p>
+            </div>
+            {% if not library_enabled %}
+            <div class="warnbox">
+                ⚠️ A biblioteca na nuvem ainda não está ativa (Supabase não configurado).
+                Os sites raspados ficam disponíveis só para download imediato.
+            </div>
+            {% else %}
+            <div id="libraryArea">
+                <div class="empty">Carregando...</div>
+            </div>
+            {% endif %}
+        </section>
+    </main>
 
     <script>
+        const LIBRARY_ENABLED = {{ 'true' if library_enabled else 'false' }};
         let currentSessionId = null;
         let eventSource = null;
 
+        function showSection(name) {
+            document.getElementById('section-new').classList.toggle('hidden', name !== 'new');
+            document.getElementById('section-library').classList.toggle('hidden', name !== 'library');
+            document.getElementById('nav-new').classList.toggle('active', name === 'new');
+            document.getElementById('nav-library').classList.toggle('active', name === 'library');
+            if (name === 'library' && LIBRARY_ENABLED) loadLibrary();
+        }
+
+        function setLoading(on) {
+            document.getElementById('downloadBtn').disabled = on;
+            document.getElementById('btnText').textContent = on ? 'Raspando...' : 'Raspar site';
+            document.getElementById('spinner').classList.toggle('hidden', !on);
+        }
+        function clearLogs() {
+            const c = document.getElementById('logContainer');
+            c.innerHTML = ''; c.classList.remove('active');
+        }
+        function addLog(msg) {
+            const c = document.getElementById('logContainer');
+            c.classList.add('active');
+            const e = document.createElement('div');
+            e.className = 'log-entry'; e.textContent = msg;
+            c.appendChild(e); c.scrollTop = c.scrollHeight;
+        }
+        function showToast(html) {
+            const t = document.getElementById('toast');
+            t.innerHTML = html; t.classList.add('active');
+        }
+        function hideToast() { document.getElementById('toast').classList.remove('active'); }
+
         function startDownload() {
             const url = document.getElementById('urlInput').value.trim();
-            if (!url) {
-                alert('Por favor, insira uma URL válida');
-                return;
-            }
+            if (!url) { alert('Insira uma URL válida'); return; }
+            setLoading(true); clearLogs(); hideToast();
 
-            // Update UI
-            setLoading(true);
-            clearLogs();
-            hideSuccess();
-
-            // Start download
             fetch('/start-download', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: url })
+                body: JSON.stringify({ url })
             })
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
-                if (data.error) {
-                    addLog('❌ ' + data.error);
-                    setLoading(false);
-                    return;
-                }
-                
+                if (data.error) { addLog('❌ ' + data.error); setLoading(false); return; }
                 currentSessionId = data.session_id;
                 connectSSE(currentSessionId);
             })
-            .catch(error => {
-                addLog('❌ Erro de conexão: ' + error.message);
-                setLoading(false);
-            });
+            .catch(err => { addLog('❌ Erro de conexão: ' + err.message); setLoading(false); });
         }
 
         function connectSSE(sessionId) {
+            if (eventSource) eventSource.close();
             eventSource = new EventSource('/stream/' + sessionId);
 
-            eventSource.onmessage = function(event) {
-                addLog(event.data);
-            };
-
-            eventSource.addEventListener('done', function(event) {
-                eventSource.close();
-                
-                if (event.data === 'complete') {
-                    // Trigger download
-                    triggerDownload(sessionId);
-                    showSuccess(sessionId);
+            eventSource.onmessage = (e) => { if (e.data) addLog(e.data); };
+            eventSource.addEventListener('done', (e) => {
+                eventSource.close(); setLoading(false);
+                if (e.data === 'complete') {
+                    if (LIBRARY_ENABLED) {
+                        showToast('✅ Site salvo na sua biblioteca! ' +
+                            '<a href="#" onclick="showSection(\'library\');return false;">Ver agora</a>');
+                        document.getElementById('urlInput').value = '';
+                    } else {
+                        const link = '/download-file/' + sessionId;
+                        showToast('✅ Pronto! <a href="' + link + '">Clique para baixar</a>');
+                        window.location.href = link;
+                    }
                 } else {
-                    addLog('❌ Download falhou');
+                    addLog('⚠️ Processo encerrado (' + e.data + ').');
                 }
-                
-                // Reset UI after a short delay
-                setTimeout(resetUI, 2000);
             });
-
-            eventSource.onerror = function() {
-                eventSource.close();
-                setLoading(false);
-            };
+            eventSource.onerror = () => { eventSource.close(); setLoading(false); };
         }
 
-        function triggerDownload(sessionId) {
-            const link = document.createElement('a');
-            link.href = '/download-file/' + sessionId;
-            link.click();
-            
-            // Update manual download link
-            document.getElementById('downloadLink').href = '/download-file/' + sessionId;
+        function fmtBytes(n) {
+            if (!n) return '—';
+            const u = ['B','KB','MB','GB']; let i = 0; n = Number(n);
+            while (n >= 1024 && i < u.length-1) { n /= 1024; i++; }
+            return n.toFixed(i ? 1 : 0) + ' ' + u[i];
+        }
+        function fmtDate(s) {
+            try { return new Date(s).toLocaleString('pt-BR'); } catch (e) { return s || ''; }
         }
 
-        function showSuccess(sessionId) {
-            document.getElementById('successMessage').classList.add('active');
-            document.getElementById('downloadLink').href = '/download-file/' + sessionId;
+        function loadLibrary() {
+            const area = document.getElementById('libraryArea');
+            area.innerHTML = '<div class="empty">Carregando...</div>';
+            fetch('/api/scrapes')
+            .then(r => r.json())
+            .then(data => {
+                const items = data.items || [];
+                if (!items.length) {
+                    area.innerHTML = '<div class="empty">Nenhum site salvo ainda. Vá em "Nova Raspagem" para começar.</div>';
+                    return;
+                }
+                const grid = document.createElement('div');
+                grid.className = 'grid';
+                items.forEach(it => {
+                    const card = document.createElement('div');
+                    card.className = 'site-card';
+                    card.innerHTML =
+                        '<div class="title">' + (it.site_name || 'site') + '</div>' +
+                        '<a class="url" href="' + it.url + '" target="_blank" rel="noopener">' + it.url + '</a>' +
+                        '<div class="meta">' + fmtDate(it.created_at) + ' · ' + fmtBytes(it.size_bytes) + '</div>' +
+                        '<div class="actions">' +
+                            '<a class="btn-sm btn-dl" href="/scrape/' + it.id + '/download">⬇️ Baixar</a>' +
+                            '<button class="btn-sm btn-del" onclick="delScrape(\'' + it.id + '\')">🗑️ Excluir</button>' +
+                        '</div>';
+                    grid.appendChild(card);
+                });
+                area.innerHTML = '';
+                area.appendChild(grid);
+            })
+            .catch(() => { area.innerHTML = '<div class="empty">Erro ao carregar a biblioteca.</div>'; });
         }
 
-        function hideSuccess() {
-            document.getElementById('successMessage').classList.remove('active');
+        function delScrape(id) {
+            if (!confirm('Excluir este site da sua biblioteca?')) return;
+            fetch('/scrape/' + id + '/delete', { method: 'POST' })
+            .then(r => r.json())
+            .then(() => loadLibrary())
+            .catch(() => alert('Erro ao excluir.'));
         }
-
-        function setLoading(loading) {
-            const btn = document.getElementById('downloadBtn');
-            const btnText = document.getElementById('btnText');
-            const spinner = document.getElementById('spinner');
-            const input = document.getElementById('urlInput');
-            const logContainer = document.getElementById('logContainer');
-
-            btn.disabled = loading;
-            input.disabled = loading;
-            spinner.style.display = loading ? 'block' : 'none';
-            btnText.textContent = loading ? 'Processando...' : 'Baixar Réplica';
-            
-            if (loading) {
-                logContainer.classList.add('active');
-            }
-        }
-
-        function resetUI() {
-            setLoading(false);
-            document.getElementById('urlInput').value = '';
-            
-            // Hide logs after delay
-            setTimeout(() => {
-                document.getElementById('logContainer').classList.remove('active');
-                hideSuccess();
-                clearLogs();
-            }, 5000);
-        }
-
-        function addLog(message) {
-            const container = document.getElementById('logContainer');
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.textContent = message;
-            container.appendChild(entry);
-            container.scrollTop = container.scrollHeight;
-        }
-
-        function clearLogs() {
-            document.getElementById('logContainer').innerHTML = '';
-        }
-
-        // Handle Enter key
-        document.getElementById('urlInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && !document.getElementById('downloadBtn').disabled) {
-                startDownload();
-            }
-        });
     </script>
 </body>
 </html>

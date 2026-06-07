@@ -38,8 +38,12 @@
 
         <form method="POST" action="/signup">
             <div class="input-group">
+                <label for="name">Seu nome</label>
+                <input type="text" id="name" name="name" placeholder="Como quer ser chamado(a)" autofocus>
+            </div>
+            <div class="input-group">
                 <label for="email">E-mail</label>
-                <input type="email" id="email" name="email" placeholder="voce@email.com" required autofocus>
+                <input type="email" id="email" name="email" placeholder="voce@email.com" required>
             </div>
             <div class="input-group">
                 <label for="password">Crie uma senha (mín. 6 caracteres)</label>
