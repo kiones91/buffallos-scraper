@@ -152,9 +152,13 @@
         <p class="subtitle">Baixe uma réplica perfeita de qualquer site, incluindo JS renderizado</p>
 
         {% if user_email %}
-        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; color:#888; margin:-0.5rem 0 1rem 0;">
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; color:#888; margin:-0.5rem 0 1rem 0; gap:12px; flex-wrap:wrap;">
             <span>👤 {{ user_email }}</span>
-            <a href="/logout" style="color:#4a6cf7; text-decoration:none; font-weight:600;">Sair</a>
+            <span style="display:flex; gap:12px;">
+                {% if is_admin %}<a href="/admin" style="color:#4a6cf7; text-decoration:none; font-weight:600;">Admin</a>{% endif %}
+                <a href="/account" style="color:#4a6cf7; text-decoration:none; font-weight:600;">Minha conta</a>
+                <a href="/logout" style="color:#4a6cf7; text-decoration:none; font-weight:600;">Sair</a>
+            </span>
         </div>
         {% endif %}
         

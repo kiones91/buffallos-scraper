@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Criar conta · Website Downloader</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh;
+            display: flex; justify-content: center; align-items: center; margin: 0; padding: 20px; }
+        .container { background: rgba(255,255,255,0.95); padding: 2.5rem; border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3); width: 100%; max-width: 420px; }
+        .logo { font-size: 2.5rem; text-align: center; margin-bottom: 0.5rem; }
+        h1 { margin: 0 0 0.25rem 0; font-size: 1.4rem; font-weight: 700; color: #1a1a2e; text-align: center; }
+        .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; text-align: center; }
+        label { display: block; font-size: 0.8rem; font-weight: 600; color: #444; margin-bottom: 0.35rem; }
+        .input-group { margin-bottom: 1rem; }
+        input { width: 100%; padding: 14px 16px; border: 2px solid #e0e0e0; border-radius: 10px;
+            font-size: 1rem; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+        input:focus { border-color: #4a6cf7; box-shadow: 0 0 0 3px rgba(74,108,247,0.1); }
+        button { background: linear-gradient(135deg, #4a6cf7 0%, #6366f1 100%); color: white; border: none;
+            padding: 14px 24px; font-size: 1rem; border-radius: 10px; cursor: pointer; width: 100%;
+            font-weight: 600; transition: transform 0.2s, box-shadow 0.2s; margin-top: 0.25rem; }
+        button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(74,108,247,0.4); }
+        .error { background: #fee2e2; color: #b91c1c; padding: 0.75rem 1rem; border-radius: 10px;
+            font-size: 0.85rem; margin-bottom: 1rem; text-align: center; }
+        .footer { margin-top: 1.5rem; text-align: center; font-size: 0.75rem; color: #aaa; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🐂</div>
+        <h1>Criar conta</h1>
+        <p class="subtitle">Defina sua senha de acesso à ferramenta</p>
+
+        {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+        <form method="POST" action="/signup">
+            <div class="input-group">
+                <label for="email">E-mail</label>
+                <input type="email" id="email" name="email" placeholder="voce@email.com" required autofocus>
+            </div>
+            <div class="input-group">
+                <label for="password">Crie uma senha (mín. 6 caracteres)</label>
+                <input type="password" id="password" name="password" placeholder="••••••••" required>
+            </div>
+            <div class="input-group">
+                <label for="confirm">Repita a senha</label>
+                <input type="password" id="confirm" name="confirm" placeholder="••••••••" required>
+            </div>
+            <button type="submit">Criar conta e entrar</button>
+        </form>
+
+        <div style="margin-top:1rem; text-align:center; font-size:0.85rem;">
+            <a href="/login" style="color:#4a6cf7; text-decoration:none; font-weight:600;">Já tenho conta — entrar</a>
+        </div>
+
+        <div class="footer">Buffallos Tecnologia · acesso restrito</div>
+    </div>
+</body>
+</html>

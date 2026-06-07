@@ -10,32 +10,54 @@ import queue
 import threading
 import time
 import gc
+import secrets as _secrets
 from datetime import timedelta
 from functools import wraps
+from werkzeug.security import generate_password_hash, check_password_hash
 from downloader import WebsiteDownloader, zip_directory, get_site_name
+import user_store
 
 app = Flask(__name__)
 
-# --- Authentication gate -------------------------------------------------
-# Acesso protegido por e-mail. Configure no Hugging Face (Settings -> Variables
-# and secrets) ou via variaveis de ambiente:
-#   SECRET_KEY      -> chave para assinar a sessao (qualquer string longa)
-#   ALLOWED_EMAILS  -> lista de e-mails autorizados, separados por virgula
-#                      (se vazio, qualquer e-mail valido entra = trava leve)
-#   ACCESS_PASSWORD -> senha de acesso compartilhada opcional (alem do e-mail)
+# --- Authentication ------------------------------------------------------
+# Contas de usuario com senha propria, persistidas via user_store (HF Dataset).
+# Configure no Hugging Face (Settings -> Variables and secrets):
+#   SECRET_KEY     -> chave para assinar a sessao (use SECRET, nao Variable)
+#   ADMIN_EMAILS   -> e-mails de admin (separados por virgula); sempre autorizados
+#   ALLOWED_EMAILS -> e-mails autorizados a se cadastrar (alem dos do painel admin)
+#   USERS_REPO     -> dataset privado p/ guardar usuarios, ex: "user/buffallos-scraper-users"
+#   HF_TOKEN       -> token HF com WRITE (SECRET) p/ ler/gravar o dataset
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(32)
 app.permanent_session_lifetime = timedelta(days=7)
 
-ACCESS_PASSWORD = os.environ.get('ACCESS_PASSWORD', '').strip()
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
 # Endpoints da API que devem responder 401 (em vez de redirecionar) sem login.
 _API_PREFIXES = ('/start-download', '/stream', '/download-file')
 
 
-def _allowed_emails():
-    raw = os.environ.get('ALLOWED_EMAILS', '')
+def _env_emails(var):
+    raw = os.environ.get(var, '')
     return {e.strip().lower() for e in raw.split(',') if e.strip()}
+
+
+def admin_emails():
+    return _env_emails('ADMIN_EMAILS')
+
+
+def is_admin(email):
+    return bool(email) and email.lower() in admin_emails()
+
+
+def can_register(email):
+    """Quem pode criar conta: admins, e-mails do ALLOWED_EMAILS (env) ou da
+    allowlist gerenciada pelo admin no painel."""
+    email = (email or '').lower()
+    return (
+        email in admin_emails()
+        or email in _env_emails('ALLOWED_EMAILS')
+        or user_store.is_allowed(email)
+    )
 
 
 def login_required(view):
@@ -45,6 +67,18 @@ def login_required(view):
             if request.path.startswith(_API_PREFIXES):
                 return jsonify({'error': 'auth_required'}), 401
             return redirect(url_for('login'))
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def admin_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        email = session.get('user_email')
+        if not email:
+            return redirect(url_for('login'))
+        if not is_admin(email):
+            return redirect(url_for('index'))
         return view(*args, **kwargs)
     return wrapped
 
@@ -185,6 +219,12 @@ def cleanup_abandoned_sessions():
 threading.Thread(target=cleanup_abandoned_sessions, daemon=True).start()
 
 
+def _start_session(email):
+    session['user_email'] = email
+    session['is_admin'] = is_admin(email)
+    session.permanent = True
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if session.get('user_email'):
@@ -193,25 +233,162 @@ def login():
     error = None
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip().lower()
-        password = (request.form.get('password') or '').strip()
-        allowed = _allowed_emails()
+        password = request.form.get('password') or ''
+
+        user = user_store.get_user(email)
+        if not EMAIL_RE.match(email) or not password:
+            error = 'Informe e-mail e senha.'
+        elif not user:
+            error = 'Conta não encontrada. Crie sua senha em "Criar conta".'
+        elif not user.get('active', True):
+            error = 'Esta conta está desativada. Fale com o administrador.'
+        elif not check_password_hash(user.get('password_hash', ''), password):
+            error = 'E-mail ou senha incorretos.'
+        else:
+            _start_session(email)
+            return redirect(url_for('index'))
+
+    return render_template('login.html', error=error)
+
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if session.get('user_email'):
+        return redirect(url_for('index'))
+
+    error = None
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+        password = request.form.get('password') or ''
+        confirm = request.form.get('confirm') or ''
 
         if not EMAIL_RE.match(email):
             error = 'Digite um e-mail válido.'
-        elif allowed and email not in allowed:
-            error = 'Este e-mail não está autorizado a acessar a ferramenta.'
-        elif ACCESS_PASSWORD and password != ACCESS_PASSWORD:
-            error = 'Senha de acesso incorreta.'
+        elif not can_register(email):
+            error = 'Este e-mail não está autorizado. Peça ao administrador para liberar seu acesso.'
+        elif user_store.get_user(email):
+            error = 'Já existe uma conta com este e-mail. Faça login.'
+        elif len(password) < 6:
+            error = 'A senha precisa ter pelo menos 6 caracteres.'
+        elif password != confirm:
+            error = 'As senhas não conferem.'
         else:
-            session['user_email'] = email
-            session.permanent = True
+            role = 'admin' if is_admin(email) else 'user'
+            user_store.upsert_user(email, generate_password_hash(password), role=role)
+            _start_session(email)
             return redirect(url_for('index'))
 
+    return render_template('signup.html', error=error)
+
+
+@app.route('/forgot', methods=['GET', 'POST'])
+def forgot():
+    message = None
+    error = None
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+        user = user_store.get_user(email)
+        if user:
+            user_store.set_pending_reset(email, True)
+        # Resposta neutra para nao revelar quais e-mails existem.
+        message = ('Se houver uma conta com este e-mail, o administrador foi '
+                   'avisado e vai redefinir sua senha em breve.')
+
+    return render_template('forgot.html', message=message, error=error)
+
+
+@app.route('/account', methods=['GET', 'POST'])
+@login_required
+def account():
+    email = session.get('user_email')
+    user = user_store.get_user(email)
+    message = None
+    error = None
+
+    if request.method == 'POST':
+        current = request.form.get('current') or ''
+        new = request.form.get('new') or ''
+        confirm = request.form.get('confirm') or ''
+
+        if not user or not check_password_hash(user.get('password_hash', ''), current):
+            error = 'Senha atual incorreta.'
+        elif len(new) < 6:
+            error = 'A nova senha precisa ter pelo menos 6 caracteres.'
+        elif new != confirm:
+            error = 'As senhas não conferem.'
+        else:
+            user_store.set_password(email, generate_password_hash(new))
+            message = 'Senha atualizada com sucesso.'
+
+    return render_template('account.html', user_email=email, message=message, error=error)
+
+
+@app.route('/admin')
+@admin_required
+def admin():
+    users = user_store.list_users()
+    allowlist = sorted(user_store.get_allowlist())
+    temp_password = session.pop('temp_password', None)
+    temp_for = session.pop('temp_for', None)
     return render_template(
-        'login.html',
-        error=error,
-        require_password=bool(ACCESS_PASSWORD),
+        'admin.html',
+        user_email=session.get('user_email'),
+        users=users,
+        allowlist=allowlist,
+        admin_emails=sorted(admin_emails()),
+        temp_password=temp_password,
+        temp_for=temp_for,
+        hub_ok=user_store.use_hub(),
     )
+
+
+@app.route('/admin/allow', methods=['POST'])
+@admin_required
+def admin_allow():
+    email = (request.form.get('email') or '').strip().lower()
+    if EMAIL_RE.match(email):
+        user_store.add_allowed(email)
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/remove-allow', methods=['POST'])
+@admin_required
+def admin_remove_allow():
+    email = (request.form.get('email') or '').strip().lower()
+    user_store.remove_allowed(email)
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/reset', methods=['POST'])
+@admin_required
+def admin_reset():
+    email = (request.form.get('email') or '').strip().lower()
+    if user_store.get_user(email):
+        temp = _secrets.token_urlsafe(6)
+        user_store.set_password(email, generate_password_hash(temp))
+        # Mostrado uma unica vez ao admin para repassar ao usuario.
+        session['temp_password'] = temp
+        session['temp_for'] = email
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/toggle', methods=['POST'])
+@admin_required
+def admin_toggle():
+    email = (request.form.get('email') or '').strip().lower()
+    user = user_store.get_user(email)
+    if user:
+        user_store.set_active(email, not user.get('active', True))
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/delete', methods=['POST'])
+@admin_required
+def admin_delete():
+    email = (request.form.get('email') or '').strip().lower()
+    if email != session.get('user_email'):
+        user_store.delete_user(email)
+    return redirect(url_for('admin'))
 
 
 @app.route('/logout')
@@ -223,7 +400,11 @@ def logout():
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html', user_email=session.get('user_email'))
+    return render_template(
+        'index.html',
+        user_email=session.get('user_email'),
+        is_admin=session.get('is_admin', False),
+    )
 
 
 @app.route('/health')

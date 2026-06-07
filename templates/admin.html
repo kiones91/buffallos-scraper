@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin · Website Downloader</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh;
+            margin: 0; padding: 30px 16px; }
+        .container { background: rgba(255,255,255,0.97); padding: 2rem; border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3); width: 100%; max-width: 820px; margin: 0 auto; }
+        .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:8px;}
+        h1 { margin: 0; font-size: 1.4rem; font-weight: 700; color: #1a1a2e; }
+        h2 { font-size: 1rem; color: #1a1a2e; margin: 1.5rem 0 0.5rem 0; }
+        .muted { color:#888; font-size:0.8rem; }
+        a.link { color:#4a6cf7; text-decoration:none; font-weight:600; font-size:0.85rem; }
+        .banner { padding:0.75rem 1rem; border-radius:10px; font-size:0.85rem; margin-bottom:1rem; }
+        .warn { background:#fef3c7; color:#92400e; }
+        .ok { background:#dcfce7; color:#166534; }
+        table { width:100%; border-collapse: collapse; font-size:0.85rem; }
+        th, td { text-align:left; padding:8px 6px; border-bottom:1px solid #eee; }
+        th { color:#666; font-weight:600; }
+        .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.72rem; font-weight:600; }
+        .pill.admin { background:#ede9fe; color:#5b21b6; }
+        .pill.on { background:#dcfce7; color:#166534; }
+        .pill.off { background:#fee2e2; color:#b91c1c; }
+        .pill.reset { background:#fef3c7; color:#92400e; }
+        form.inline { display:inline; }
+        .btn { border:none; border-radius:8px; padding:6px 10px; font-size:0.78rem; font-weight:600; cursor:pointer; }
+        .btn-blue { background:#4a6cf7; color:#fff; }
+        .btn-gray { background:#e5e7eb; color:#374151; }
+        .btn-red { background:#fee2e2; color:#b91c1c; }
+        .row-form { display:flex; gap:8px; margin:0.5rem 0 0.25rem 0; flex-wrap:wrap; }
+        .row-form input { flex:1; min-width:200px; padding:10px 12px; border:2px solid #e0e0e0; border-radius:8px; font-size:0.9rem; }
+        .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+        .chip { background:#f1f5f9; border-radius:999px; padding:4px 10px; font-size:0.78rem; display:flex; align-items:center; gap:6px; }
+        .chip form { display:inline; }
+        .chip button { background:none; border:none; color:#b91c1c; cursor:pointer; font-weight:700; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="topbar">
+            <h1>🛠️ Painel do administrador</h1>
+            <span><a class="link" href="/">← Voltar à ferramenta</a> &nbsp; <a class="link" href="/logout">Sair</a></span>
+        </div>
+        <p class="muted">Logado como {{ user_email }}</p>
+
+        {% if not hub_ok %}
+        <div class="banner warn">
+            ⚠️ Persistência não configurada (USERS_REPO / HF_TOKEN ausentes). As contas
+            funcionam, mas <b>serão perdidas quando o Space reiniciar</b>. Configure o
+            dataset privado para salvar de forma permanente.
+        </div>
+        {% endif %}
+
+        {% if temp_password %}
+        <div class="banner ok">
+            🔑 Senha temporária gerada para <b>{{ temp_for }}</b>:
+            <code style="font-size:1rem;">{{ temp_password }}</code><br>
+            Repasse para a pessoa. Ela deve entrar e trocar em "Minha conta". (Mostrado só uma vez.)
+        </div>
+        {% endif %}
+
+        <h2>Autorizar novo e-mail</h2>
+        <p class="muted">E-mails autorizados podem criar a própria senha em "Criar conta".</p>
+        <form class="row-form" method="POST" action="/admin/allow">
+            <input type="email" name="email" placeholder="novo@email.com" required>
+            <button class="btn btn-blue" type="submit">Autorizar</button>
+        </form>
+        <div class="chips">
+            {% for email in allowlist %}
+            <span class="chip">{{ email }}
+                <form method="POST" action="/admin/remove-allow">
+                    <input type="hidden" name="email" value="{{ email }}">
+                    <button title="Remover autorização" type="submit">×</button>
+                </form>
+            </span>
+            {% else %}
+            <span class="muted">Nenhum e-mail na lista (além dos admins/ALLOWED_EMAILS).</span>
+            {% endfor %}
+        </div>
+
+        <h2>Contas criadas</h2>
+        <table>
+            <thead>
+                <tr><th>E-mail</th><th>Tipo</th><th>Status</th><th>Ações</th></tr>
+            </thead>
+            <tbody>
+                {% for email, u in users.items() %}
+                <tr>
+                    <td>{{ email }}</td>
+                    <td>
+                        {% if u.role == 'admin' %}<span class="pill admin">admin</span>{% else %}usuário{% endif %}
+                    </td>
+                    <td>
+                        {% if u.active %}<span class="pill on">ativo</span>{% else %}<span class="pill off">inativo</span>{% endif %}
+                        {% if u.pending_reset %}<span class="pill reset">pediu reset</span>{% endif %}
+                    </td>
+                    <td>
+                        <form class="inline" method="POST" action="/admin/reset">
+                            <input type="hidden" name="email" value="{{ email }}">
+                            <button class="btn btn-gray" type="submit">Resetar senha</button>
+                        </form>
+                        <form class="inline" method="POST" action="/admin/toggle">
+                            <input type="hidden" name="email" value="{{ email }}">
+                            <button class="btn btn-gray" type="submit">{% if u.active %}Desativar{% else %}Ativar{% endif %}</button>
+                        </form>
+                        {% if email != user_email %}
+                        <form class="inline" method="POST" action="/admin/delete" onsubmit="return confirm('Excluir a conta {{ email }}?');">
+                            <input type="hidden" name="email" value="{{ email }}">
+                            <button class="btn btn-red" type="submit">Excluir</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" class="muted">Nenhuma conta criada ainda.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <h2>Administradores</h2>
+        <p class="muted">Definidos na variável <code>ADMIN_EMAILS</code>: {{ admin_emails | join(', ') if admin_emails else '— nenhum definido —' }}</p>
+    </div>
+</body>
+</html>

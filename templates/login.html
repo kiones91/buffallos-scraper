@@ -101,7 +101,7 @@
     <div class="container">
         <div class="logo">🐂</div>
         <h1>Buffallos · Website Downloader</h1>
-        <p class="subtitle">Informe seu e-mail para acessar a ferramenta</p>
+        <p class="subtitle">Entre com seu e-mail e senha</p>
 
         {% if error %}
         <div class="error">{{ error }}</div>
@@ -113,15 +113,18 @@
                 <input type="email" id="email" name="email" placeholder="voce@email.com" required autofocus>
             </div>
 
-            {% if require_password %}
             <div class="input-group">
-                <label for="password">Senha de acesso</label>
+                <label for="password">Senha</label>
                 <input type="password" id="password" name="password" placeholder="••••••••" required>
             </div>
-            {% endif %}
 
             <button type="submit">Entrar</button>
         </form>
+
+        <div class="links" style="margin-top:1rem; display:flex; justify-content:space-between; font-size:0.85rem;">
+            <a href="/signup" style="color:#4a6cf7; text-decoration:none; font-weight:600;">Criar conta</a>
+            <a href="/forgot" style="color:#888; text-decoration:none;">Esqueci a senha</a>
+        </div>
 
         <div class="footer">Buffallos Tecnologia · acesso restrito</div>
     </div>
