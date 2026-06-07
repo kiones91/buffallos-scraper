@@ -1,3 +1,13 @@
+---
+title: Buffallos Scraper
+emoji: 🌐
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # 🌐 Website Downloader
 
 Uma ferramenta web para baixar réplicas completas de sites, incluindo conteúdo renderizado por JavaScript.
