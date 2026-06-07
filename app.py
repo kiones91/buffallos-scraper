@@ -275,6 +275,22 @@ def login():
         email = (request.form.get('email') or '').strip().lower()
         password = request.form.get('password') or ''
 
+        # Fallback robusto: o superadmin SEMPRE entra com as credenciais do
+        # ambiente, mesmo que a persistencia (Supabase/Dataset) esteja indisponivel.
+        sa_email = os.environ.get('SUPERADMIN_EMAIL', '').strip().lower()
+        sa_pass = os.environ.get('SUPERADMIN_PASSWORD', '')
+        if sa_email and sa_pass and email == sa_email and password == sa_pass:
+            try:
+                if not user_store.get_user(email):
+                    user_store.upsert_user(
+                        email, generate_password_hash(password), role='admin',
+                        name=os.environ.get('SUPERADMIN_NAME', 'Super Admin'),
+                    )
+            except Exception as exc:
+                print(f"[login] superadmin upsert falhou (seguindo mesmo assim): {exc}")
+            _start_session(email)
+            return redirect(url_for('index'))
+
         user = user_store.get_user(email)
         if not EMAIL_RE.match(email) or not password:
             error = 'Informe e-mail e senha.'
