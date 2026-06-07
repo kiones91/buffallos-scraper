@@ -10,6 +10,7 @@ import queue
 import threading
 import time
 import gc
+import hashlib
 import secrets as _secrets
 from datetime import timedelta
 from functools import wraps
@@ -17,6 +18,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from downloader import WebsiteDownloader, zip_directory, get_site_name
 import user_store
 import scrape_store
+import mailer
 
 app = Flask(__name__)
 
@@ -44,7 +46,32 @@ def _env_emails(var):
 
 
 def admin_emails():
-    return _env_emails('ADMIN_EMAILS')
+    emails = _env_emails('ADMIN_EMAILS')
+    sa = os.environ.get('SUPERADMIN_EMAIL', '').strip().lower()
+    if sa:
+        emails.add(sa)
+    return emails
+
+
+def bootstrap_superadmin():
+    """Cria a conta de superadmin a partir das variaveis de ambiente, caso
+    ainda nao exista. Nao sobrescreve a senha se a conta ja existir (assim a
+    troca feita pelo usuario persiste)."""
+    email = os.environ.get('SUPERADMIN_EMAIL', '').strip().lower()
+    password = os.environ.get('SUPERADMIN_PASSWORD', '')
+    if not email or not password:
+        return
+    try:
+        if not user_store.get_user(email):
+            user_store.upsert_user(
+                email,
+                generate_password_hash(password),
+                role='admin',
+                name=os.environ.get('SUPERADMIN_NAME', 'Super Admin'),
+            )
+            print(f"[bootstrap] superadmin criado: {email}")
+    except Exception as exc:
+        print(f"[bootstrap] falha ao criar superadmin: {exc}")
 
 
 def is_admin(email):
@@ -220,6 +247,8 @@ def cleanup_abandoned_sessions():
 
 threading.Thread(target=cleanup_abandoned_sessions, daemon=True).start()
 
+bootstrap_superadmin()
+
 
 def _display_name(email):
     user = user_store.get_user(email) or {}
@@ -295,6 +324,33 @@ def signup():
     return render_template('signup.html', error=error)
 
 
+def _base_url():
+    base = os.environ.get('APP_BASE_URL', '').strip().rstrip('/')
+    if base:
+        return base
+    return request.url_root.rstrip('/')
+
+
+def _send_reset_email(email):
+    token = _secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    expires = time.time() + 3600  # 1 hora
+    user_store.set_reset(email, token_hash, expires)
+
+    link = f"{_base_url()}/reset?email={email}&token={token}"
+    html = f"""
+        <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto">
+          <h2>Buffallos · Redefinir senha</h2>
+          <p>Recebemos um pedido para redefinir a senha desta conta.</p>
+          <p><a href="{link}" style="background:#4a6cf7;color:#fff;padding:12px 20px;
+             border-radius:8px;text-decoration:none;display:inline-block">Redefinir minha senha</a></p>
+          <p style="color:#666;font-size:13px">Ou copie e cole este link (válido por 1 hora):<br>{link}</p>
+          <p style="color:#999;font-size:12px">Se você não pediu isso, ignore este e-mail.</p>
+        </div>
+    """
+    return mailer.send_email(email, "Buffallos · Redefinir sua senha", html)
+
+
 @app.route('/forgot', methods=['GET', 'POST'])
 def forgot():
     message = None
@@ -303,12 +359,54 @@ def forgot():
         email = (request.form.get('email') or '').strip().lower()
         user = user_store.get_user(email)
         if user:
-            user_store.set_pending_reset(email, True)
+            if mailer.enabled():
+                _send_reset_email(email)
+            else:
+                user_store.set_pending_reset(email, True)
         # Resposta neutra para nao revelar quais e-mails existem.
-        message = ('Se houver uma conta com este e-mail, o administrador foi '
-                   'avisado e vai redefinir sua senha em breve.')
+        if mailer.enabled():
+            message = ('Se houver uma conta com este e-mail, enviamos um link '
+                       'para redefinir a senha. Verifique sua caixa de entrada e spam.')
+        else:
+            message = ('Se houver uma conta com este e-mail, o administrador foi '
+                       'avisado e vai redefinir sua senha em breve.')
 
     return render_template('forgot.html', message=message, error=error)
+
+
+@app.route('/reset', methods=['GET', 'POST'])
+def reset():
+    email = (request.values.get('email') or '').strip().lower()
+    token = request.values.get('token') or ''
+    error = None
+
+    user = user_store.get_user(email)
+    token_hash = hashlib.sha256(token.encode()).hexdigest() if token else ''
+    valid = bool(
+        user
+        and token
+        and user.get('reset_token')
+        and _secrets.compare_digest(user.get('reset_token', ''), token_hash)
+        and (user.get('reset_expires', 0) or 0) > time.time()
+    )
+
+    if request.method == 'POST':
+        if not valid:
+            error = 'Link inválido ou expirado. Solicite um novo.'
+        else:
+            new = request.form.get('new') or ''
+            confirm = request.form.get('confirm') or ''
+            if len(new) < 6:
+                error = 'A nova senha precisa ter pelo menos 6 caracteres.'
+            elif new != confirm:
+                error = 'As senhas não conferem.'
+            else:
+                user_store.set_password(email, generate_password_hash(new))
+                return render_template('reset.html', done=True)
+
+    return render_template(
+        'reset.html', email=email, token=token, valid=valid, error=error, done=False
+    )
 
 
 @app.route('/account', methods=['GET', 'POST'])

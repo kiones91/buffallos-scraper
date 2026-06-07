@@ -281,6 +281,21 @@ def set_password(email, password_hash):
             return False
         user["password_hash"] = password_hash
         user["pending_reset"] = False
+        user.pop("reset_token", None)
+        user.pop("reset_expires", None)
+        user["updated_at"] = time.time()
+        _persist()
+        return True
+
+
+def set_reset(email, token_hash, expires):
+    _ensure_loaded()
+    with _LOCK:
+        user = _STATE["users"].get(email)
+        if not user:
+            return False
+        user["reset_token"] = token_hash
+        user["reset_expires"] = expires
         user["updated_at"] = time.time()
         _persist()
         return True
