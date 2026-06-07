@@ -39,12 +39,25 @@ import time
 
 FILENAME = "users.json"
 
+# --- Supabase (preferred) ---
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+SUPABASE_KEY = (
+    os.environ.get("SUPABASE_KEY", "").strip()
+    or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    or os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+)
+SUPABASE_TABLE = os.environ.get("SUPABASE_TABLE", "app_state").strip()
+SUPABASE_ROW_ID = "users"
+
+# --- Hugging Face Dataset (fallback) ---
 USERS_REPO = os.environ.get("USERS_REPO", "").strip()
 HF_TOKEN = (
     os.environ.get("HF_TOKEN", "").strip()
     or os.environ.get("HF_API_TOKEN", "").strip()
     or os.environ.get("HUGGINGFACE_TOKEN", "").strip()
 )
+
+# --- Local file (dev only) ---
 LOCAL_PATH = os.environ.get("USERS_FILE", "data/users.json")
 
 _LOCK = threading.RLock()
@@ -52,12 +65,72 @@ _STATE = None
 _LOADED = False
 
 
+def use_supabase():
+    return bool(SUPABASE_URL and SUPABASE_KEY)
+
+
 def use_hub():
     return bool(USERS_REPO and HF_TOKEN)
 
 
+def is_persistent():
+    """True when a durable backend (Supabase or HF Dataset) is configured."""
+    return use_supabase() or use_hub()
+
+
+def backend_name():
+    if use_supabase():
+        return "supabase"
+    if use_hub():
+        return "hf_dataset"
+    return "local_file"
+
+
 def _default_state():
     return {"users": {}, "allowlist": []}
+
+
+def _supabase_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+    }
+
+
+def _load_from_supabase():
+    import requests
+
+    try:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
+            headers=_supabase_headers(),
+            params={"id": f"eq.{SUPABASE_ROW_ID}", "select": "data"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        if rows and isinstance(rows, list) and rows[0].get("data"):
+            return rows[0]["data"]
+        return _default_state()
+    except Exception as exc:
+        print(f"[user_store] starting empty (supabase load failed: {exc})")
+        return _default_state()
+
+
+def _save_to_supabase(state):
+    import requests
+
+    headers = _supabase_headers()
+    headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
+    resp = requests.post(
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
+        headers=headers,
+        params={"on_conflict": "id"},
+        data=json.dumps({"id": SUPABASE_ROW_ID, "data": state}),
+        timeout=15,
+    )
+    resp.raise_for_status()
 
 
 def _load_from_hub():
@@ -116,14 +189,21 @@ def _ensure_loaded():
     with _LOCK:
         if _LOADED:
             return
-        _STATE = _load_from_hub() if use_hub() else _load_local()
+        if use_supabase():
+            _STATE = _load_from_supabase()
+        elif use_hub():
+            _STATE = _load_from_hub()
+        else:
+            _STATE = _load_local()
         _STATE.setdefault("users", {})
         _STATE.setdefault("allowlist", [])
         _LOADED = True
 
 
 def _persist():
-    if use_hub():
+    if use_supabase():
+        _save_to_supabase(_STATE)
+    elif use_hub():
         _save_to_hub(_STATE)
     else:
         _save_local(_STATE)

@@ -50,9 +50,13 @@
 
         {% if not hub_ok %}
         <div class="banner warn">
-            ⚠️ Persistência não configurada (USERS_REPO / HF_TOKEN ausentes). As contas
-            funcionam, mas <b>serão perdidas quando o Space reiniciar</b>. Configure o
-            dataset privado para salvar de forma permanente.
+            ⚠️ Persistência não configurada. As contas funcionam, mas <b>serão perdidas
+            quando o Space reiniciar</b>. Configure o Supabase (SUPABASE_URL +
+            SUPABASE_KEY) ou o dataset HF (USERS_REPO + HF_TOKEN).
+        </div>
+        {% else %}
+        <div class="banner ok">
+            ✅ Persistência ativa — backend: <b>{{ backend }}</b>. As contas ficam salvas.
         </div>
         {% endif %}
 

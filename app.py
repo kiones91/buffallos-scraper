@@ -25,8 +25,9 @@ app = Flask(__name__)
 #   SECRET_KEY     -> chave para assinar a sessao (use SECRET, nao Variable)
 #   ADMIN_EMAILS   -> e-mails de admin (separados por virgula); sempre autorizados
 #   ALLOWED_EMAILS -> e-mails autorizados a se cadastrar (alem dos do painel admin)
-#   USERS_REPO     -> dataset privado p/ guardar usuarios, ex: "user/buffallos-scraper-users"
-#   HF_TOKEN       -> token HF com WRITE (SECRET) p/ ler/gravar o dataset
+# Persistencia (escolha UM backend duravel):
+#   SUPABASE_URL + SUPABASE_KEY  -> Postgres do Supabase (preferido; SECRET a key)
+#   USERS_REPO + HF_TOKEN        -> dataset privado HF (fallback)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(32)
 app.permanent_session_lifetime = timedelta(days=7)
 
@@ -338,7 +339,8 @@ def admin():
         admin_emails=sorted(admin_emails()),
         temp_password=temp_password,
         temp_for=temp_for,
-        hub_ok=user_store.use_hub(),
+        hub_ok=user_store.is_persistent(),
+        backend=user_store.backend_name(),
     )
 
 
